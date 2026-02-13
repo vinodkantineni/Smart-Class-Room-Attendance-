@@ -1,0 +1,61 @@
+TECHNICAL TERMS & CONCEPTS
+
+This document explains the specific technical terms and concepts used within the Smart Attendance System codebase.
+
+1. COMPUTER VISION CONCEPTS
+
+Term: Bounding Box (BBox)
+Definition: A rectangular box defined by coordinates (x1, y1, x2, y2) that encloses a detected object.
+Work: Defines exactly where a face is located in the video frame for cropping and analysis.
+
+Term: Landmarks
+Definition: Specific key points on a face (e.g., corners of eyes, tip of nose).
+Work: Used to calculate the "Eye Aspect Ratio" (EAR) for blink detection.
+
+Term: Eye Aspect Ratio (EAR)
+Definition: A mathematical formula that calculates the openness of an eye.
+Work: Determines if an eye is open or closed to verify liveness (Blink Detection).
+
+Term: Preprocessing
+Definition: Getting raw data ready for a model.
+Work: Converts raw camera images into the specific 80x80 format required by the AI model.
+
+--------------------------------------------------------------------------------
+
+2. AI / MODEL TERMINOLOGY
+
+Term: Inference
+Definition: Using a trained model to make a prediction.
+Work: The system "infers" whether a face is Real or Fake on every frame.
+
+Term: Tensor
+Definition: A multi-dimensional array used as input for Deep Learning models.
+Work: Image data is converted from NumPy arrays to PyTorch Tensors for the Liveness model.
+
+Term: Logits / Softmax
+Definition: Raw model output scores (logits) and the function to convert them to probabilities (softmax).
+Work: Converts numbers into "98% Real".
+
+Term: Temporal Smoothing
+Definition: Averaging results over time.
+Work: Prevents the "Real/Fake" label from flickering by averaging the last 5 frames.
+
+Term: ONNX
+Definition: Open Neural Network Exchange format.
+Work: Allows the Face Detector to run fast on the CPU.
+
+--------------------------------------------------------------------------------
+
+3. DEPLOYMENT / SYSTEM TERMS
+
+Term: GUI (Graphical User Interface)
+Definition: The visual part of the app.
+Work: The Dashboard built with CustomTkinter.
+
+Term: Threading
+Definition: Running multiple tasks at once.
+Work: Keeps the video loop from freezing the window.
+
+Term: FPS (Frames Per Second)
+Definition: Speed of the video.
+Work: The system processes frames as fast as possible for smooth video.

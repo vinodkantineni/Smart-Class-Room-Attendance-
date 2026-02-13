@@ -1,0 +1,52 @@
+PROJECT DEPENDENCIES
+
+To run the Smart Attendance System, you need to install the following Python libraries.
+
+1. PRIMARY DEPENDENCIES (from requirements.txt)
+
+Dependency: OpenCV
+Pip Name: opencv-python
+Function: Core image processing and camera access.
+
+Dependency: NumPy
+Pip Name: numpy
+Function: Matrix and array mathematics (required by OpenCV/PyTorch).
+
+Dependency: ONNX Runtime
+Pip Name: onnxruntime
+Function: Optimized engine to run the Face Detection model.
+
+Dependency: MediaPipe
+Pip Name: mediapipe
+Function: Blink Detection (Face Mesh).
+
+Dependency: CustomTkinter
+Pip Name: customtkinter
+Function: Modern UI styling.
+
+Dependency: Pillow
+Pip Name: Pillow
+Function: Image format handling for GUI.
+
+Dependency: Requests
+Pip Name: requests
+Function: HTTP library.
+
+--------------------------------------------------------------------------------
+
+2. CRITICAL IMPLIED DEPENDENCIES
+These are NOT in requirements.txt but are REQUIRED.
+
+Dependency: PyTorch
+Pip Name: torch torchvision
+Function: Required for the Liveness Detection model (liveness.pth).
+
+--------------------------------------------------------------------------------
+
+3. INSTALLATION COMMAND
+
+To install everything at once, run this command in your terminal:
+
+pip install opencv-python numpy onnxruntime mediapipe customtkinter Pillow requests torch torchvision
+
+Note: If you have a dedicated NVIDIA GPU, you may want to install the GPU-enabled version of PyTorch.

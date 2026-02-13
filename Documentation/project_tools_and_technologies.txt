@@ -1,0 +1,86 @@
+TOOLS AND TECHNOLOGIES USED
+
+This document details every major tool, library, and framework used in the Smart Attendance System, explaining what it does and where it is implemented in the codebase.
+
+1. CORE LIBRARIES & FRAMEWORKS
+
+Tool: OpenCV (cv2)
+Type: Computer Vision Library
+Function:
+ - Captures video from camera.
+ - Reads/Writes images.
+ - Draws bounding boxes and text on frames.
+ - Image color conversion (BGR to RGB).
+Where Used: Main/app_ui.py, Main/liveness.py, student_enrollment/ui/layout.py, Main/detector.py
+
+Tool: CustomTkinter (ctk)
+Type: UI Framework
+Function:
+ - Provides the modern, dark-mode friendly Graphical User Interface (GUI) for the main application.
+ - Creates windows, buttons, labels, and frames.
+Where Used: Main/app_ui.py
+
+Tool: Tkinter (tk)
+Type: UI Framework
+Function: Standard Python GUI library used for the Enrollment module's interface (legacy/separate window).
+Where Used: student_enrollment/main.py, student_enrollment/ui/layout.py
+
+Tool: NumPy (numpy)
+Type: Math Library
+Function:
+ - Handles image data as multi-dimensional arrays (matrices).
+ - Performs efficient mathematical operations for model input preparation.
+Where Used: Main/liveness.py, Main/app_ui.py, and everywhere image data is processed.
+
+Tool: Pillow (PIL)
+Type: Image Library
+Function: Converts OpenCV images (arrays) into a format compatible with the UI (Tkinter/CustomTkinter) for display.
+Where Used: Main/app_ui.py, student_enrollment/ui/layout.py
+
+Tool: Winsound
+Type: System Library
+Function: Generates beep sounds for audio feedback during enrollment.
+Where Used: student_enrollment/ui/layout.py
+
+--------------------------------------------------------------------------------
+
+2. AI & MACHINE LEARNING TOOLS
+
+Tool: ONNX Runtime
+Type: Inference Engine
+Function: Runs the SCRFD face detection model efficiently on the CPU.
+Where Used: Main/detector.py
+
+Tool: PyTorch (torch)
+Type: ML Framework
+Function:
+ - Loads and runs the MiniFASNetV2 deep learning model.
+ - Performs the actual "Real vs Fake" classification inference.
+Where Used: Main/liveness.py, Main/minifasnet.py
+
+Tool: MediaPipe
+Type: ML Solution
+Function: Used specifically to calculate Eye Aspect Ratio (EAR) for Blink Detection (Active Liveness).
+Where Used: Main/liveness.py
+
+--------------------------------------------------------------------------------
+
+3. SPECIFIC MODELS
+
+Model: SCRFD
+Type: AI Model (ONNX)
+Work: Face Detector. (Highly efficient model to locate faces in an image).
+File Location: Main/models/scrfd_2.5g_bnkps.onnx
+
+Model: MiniFASNetV2
+Type: AI Model (PTH)
+Work: Liveness Detector. (Analyzes the texture of a cropped face to determine if it is a real skin surface or a screen/paper spoof).
+File Location: Main/models/liveness.pth
+
+--------------------------------------------------------------------------------
+
+4. HARDWARE INTERACTION
+
+Tool: Webcam / USB Camera
+Work: Source of raw video data.
+Usage: Accessed via OpenCV VideoCapture (Index 0 or 1).

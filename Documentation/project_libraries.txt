@@ -1,0 +1,61 @@
+PROJECT LIBRARIES
+
+This document lists all Python libraries used in the Smart Attendance System, including external dependencies and key standard libraries.
+
+1. EXTERNAL LIBRARIES (Installable via pip)
+
+Library: opencv-python (cv2)
+Function: Computer Vision. Handles video capture, image manipulation (resize, color conversion), and drawing graphics.
+Where Used: Main/app_ui.py, Main/liveness.py, student_enrollment/ui/layout.py
+
+Library: customtkinter
+Function: UI Framework. A modern, dark-mode friendly wrapper around Tkinter for the dashboard.
+Where Used: Main/app_ui.py
+
+Library: mediapipe
+Function: Face Analysis. Provides ready-to-use solutions for Face Mesh (landmarks for blink detection).
+Where Used: Main/liveness.py
+
+Library: torch (PyTorch)
+Function: Deep Learning. The engine that runs the MiniFASNet neural network for anti-spoofing.
+Where Used: Main/liveness.py, Main/minifasnet.py
+
+Library: onnxruntime
+Function: Inference Engine. Runs the SCRFD face detection model.
+Where Used: Main/detector.py
+
+Library: numpy
+Function: Data Processing. Fundamental library for matrix operations (image arrays).
+Where Used: Main/liveness.py, Main/app_ui.py, Main/detector.py
+
+Library: Pillow (PIL)
+Function: Image Handling. Converts OpenCV images into UI-compatible formats.
+Where Used: Main/app_ui.py, student_enrollment/ui/layout.py
+
+Library: requests
+Function: HTTP Client. Used for making web requests.
+Where Used: Main/download_liveness.py
+
+--------------------------------------------------------------------------------
+
+2. KEY STANDARD LIBRARIES (Built-in)
+
+Library: tkinter
+Function: Standard UI. The built-in GUI library.
+Where Used: student_enrollment/main.py
+
+Library: winsound
+Function: Audio. Windows-specific library to play beep sounds.
+Where Used: student_enrollment/ui/layout.py
+
+Library: threading
+Function: Concurrency. Runs tasks in the background to keep the UI responsive.
+Where Used: Main/app_ui.py
+
+Library: os / sys
+Function: System Operations. File path handling and directory creation.
+Where Used: All files.
+
+Library: datetime
+Function: Time Handling. Generates timestamps for logs and filenames.
+Where Used: Main/app_ui.py

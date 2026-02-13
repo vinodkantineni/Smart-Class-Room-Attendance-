@@ -1,0 +1,24 @@
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Python compiled files
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+error_log.txt
+debug.log
+
+# Datasets / User Personal Data
+dataset/
+student_enrollment/dataset/
+
+# Temporary / Debug files
+debug_mp*.py
+
+# OS specific files
+.DS_Store
+Thumbs.db

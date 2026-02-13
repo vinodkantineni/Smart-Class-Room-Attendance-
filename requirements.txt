@@ -1,0 +1,11 @@
+opencv-python
+numpy
+onnxruntime
+mediapipe==0.10.9
+customtkinter
+Pillow
+requests
+torch
+torchvision
+facenet-pytorch
+protobuf==3.20.3
