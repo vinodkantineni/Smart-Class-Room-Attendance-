@@ -45,24 +45,30 @@ class LivenessDetector:
             print(f"Warning: Liveness model not found at: {self.model_path}")
             print("   Info: Running in Fallback Mode: Blink Detection Only.")
 
-        # 2. Initialize MediaPipe Face Mesh (Active Liveness)
+        # 2. Initialize MediaPipe FaceLandmarker (Active Liveness)
         self.use_mediapipe = False
+        self.face_landmarker = None
         try:
-            if hasattr(mp, 'solutions') and hasattr(mp.solutions, 'face_mesh'):
-                self.mp_face_mesh = mp.solutions.face_mesh
-                self.face_mesh = self.mp_face_mesh.FaceMesh(
-                    static_image_mode=True, 
-                    max_num_faces=1,
-                    refine_landmarks=True, 
-                    min_detection_confidence=0.5
-                )
+            import mediapipe as mp
+            from mediapipe.tasks import python
+            from mediapipe.tasks.python import vision
+            
+            model_asset_path = os.path.join(base_dir, "face_landmarker.task")
+            if os.path.exists(model_asset_path):
+                base_options = python.BaseOptions(model_asset_path=model_asset_path)
+                options = vision.FaceLandmarkerOptions(
+                    base_options=base_options,
+                    output_face_blendshapes=False,
+                    output_facial_transformation_matrixes=False,
+                    num_faces=1)
+                self.face_landmarker = vision.FaceLandmarker.create_from_options(options)
+                self.mp_image_format = mp.ImageFormat.SRGB
                 self.use_mediapipe = True
+                print("Success: MediaPipe FaceLandmarker Loaded.")
             else:
-                 print("Warning: mp.solutions.face_mesh not found. Active liveness disabled.")
-                 self.face_mesh = None
+                 print(f"Warning: MediaPipe model not found at {model_asset_path}. Active liveness disabled.")
         except Exception as e:
             print(f"Warning: MediaPipe init failed: {e}. Active liveness disabled.")
-            self.face_mesh = None
         
         self.blink_threshold = 0.30 # Lower for refined landmarks often
 
@@ -124,11 +130,13 @@ class LivenessDetector:
                 resized_crop = cv2.resize(crop, (80, 80))
                 rgb_crop = cv2.cvtColor(resized_crop, cv2.COLOR_BGR2RGB)
                 
+                # NOTE: Normalized / 255.0 REMOVED based on previous fix.
+                # Just cast to float.
                 blob = rgb_crop.astype(np.float32)
                 blob = np.transpose(blob, (2, 0, 1)) 
                 blob = np.expand_dims(blob, axis=0) 
                 
-                tensor_input = torch.from_numpy(blob).to(self.device)
+                tensor_input = torch.from_numpy(blob).to(self.device).float()
                 
                 with torch.no_grad():
                     logits = self.model(tensor_input)
@@ -144,23 +152,40 @@ class LivenessDetector:
         details['raw_score'] = model_score
         
         # --- Step 3: MediaPipe Active Liveness (Blink Detection) ---
-        square_crop, (pad_left, pad_top, _) = pad_to_square(crop)
+        # FaceMesh works better with a tighter crop than the 2.7x used for MiniFASNet
+        mp_scale = 1.3
+        mp_new_w = w * mp_scale
+        mp_new_h = h * mp_scale
+        mp_nx1 = max(0, int(cx - mp_new_w/2))
+        mp_ny1 = max(0, int(cy - mp_new_h/2))
+        mp_nx2 = min(w_img, int(cx + mp_new_w/2))
+        mp_ny2 = min(h_img, int(cy + mp_new_h/2))
+        
+        mp_crop = frame[mp_ny1:mp_ny2, mp_nx1:mp_nx2]
+        
+        # Fallback to the original crop if mp_crop is invalid
+        if mp_crop.size == 0:
+            mp_crop = crop
+            mp_nx1, mp_ny1 = nx1, ny1
+            
+        square_crop, (pad_left, pad_top, _) = pad_to_square(mp_crop)
         square_rgb = cv2.cvtColor(square_crop, cv2.COLOR_BGR2RGB)
         
         results = None
-        if self.use_mediapipe and self.face_mesh:
+        if self.use_mediapipe and self.face_landmarker:
             try:
-                results = self.face_mesh.process(square_rgb)
+                mp_image = mp.Image(image_format=self.mp_image_format, data=square_rgb)
+                results = self.face_landmarker.detect(mp_image)
             except Exception as e:
                 print(f"MP Process Error: {e}")
         
         blink_ratio = 0.0
         user_is_blinking = False
         
-        if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
+        if results and results.face_landmarks:
+            for face_landmarks in results.face_landmarks:
                 # Log landmarks for debugging if needed
-                details['landmarks'] = [(lm.x, lm.y) for lm in face_landmarks.landmark]
+                details['landmarks'] = [(lm.x, lm.y) for lm in face_landmarks]
                 
                 # EAR Calculation
                 left_eye = [33, 160, 158, 133, 153, 144]
@@ -169,7 +194,7 @@ class LivenessDetector:
                 def get_ear(eye_indices, landmarks):
                     pts = []
                     for idx in eye_indices:
-                        pt = landmarks.landmark[idx]
+                        pt = landmarks[idx]
                         pts.append(np.array([pt.x, pt.y]))
                     
                     v1 = np.linalg.norm(pts[1] - pts[5])
@@ -185,10 +210,11 @@ class LivenessDetector:
         details['blink_ratio'] = blink_ratio
         
         # Add dimensions to details for UI visualization
-        # pad_to_square returns (pad_left, pad_top, pad_bottom)
         details['square_dim'] = square_crop.shape[0] # Height (and width since it's square)
         details['pad_left'] = pad_left
         details['pad_top'] = pad_top
+        details['mp_nx1'] = mp_nx1
+        details['mp_ny1'] = mp_ny1
         
         # Check Blink Threshold
         if blink_ratio < self.blink_threshold and blink_ratio > 0.05: # >0.05 to avoid closed-eye/tracking errors
@@ -202,8 +228,9 @@ class LivenessDetector:
         is_candidate_real = False
 
         if self.model:
-            STRONG_REAL_THRESH = 0.70
-            WEAK_REAL_THRESH = 0.40 # "Gray Zone" start
+            # Thresholds tuned in Step 166
+            STRONG_REAL_THRESH = 0.50
+            WEAK_REAL_THRESH = 0.10 # "Gray Zone" start
             
             if smoothed_score > STRONG_REAL_THRESH:
                 # High confidence -> Real
@@ -248,5 +275,3 @@ class LivenessDetector:
             final_label = "FAKE"
 
         return final_label, model_score, smoothed_score, details
-
-

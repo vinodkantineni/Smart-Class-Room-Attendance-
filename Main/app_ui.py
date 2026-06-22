@@ -8,11 +8,14 @@ import os
 import numpy as np
 import subprocess
 import sys
+import csv
+import tkinter.messagebox as messagebox
 
 from Main.detector import SCRFD
 from Main.liveness import LivenessDetector
 from Main.recognition import FaceRecognizer
 from Main.camera_manager import CameraSource
+from Main.tracker import CentroidTracker
 
 import concurrent.futures
 
@@ -42,6 +45,7 @@ class SmartAttendanceApp(ctk.CTk):
         # State
         self.debug_mode = ctk.BooleanVar(value=False)
         self.marked_students = set() # Track attendance for this session
+        self.attendance_records = [] # Store detailed records for download
 
         # Initialize Detector
         model_file = os.path.join("Main", "models", "scrfd_2.5g_bnkps.onnx")
@@ -58,6 +62,9 @@ class SmartAttendanceApp(ctk.CTk):
              dataset_dir = os.path.join(project_root, "dataset")
              
         self.face_recognizer = FaceRecognizer(dataset_path=dataset_dir)
+        
+        # Initialize Trackers (Map: camera_index -> tracker)
+        self.trackers = {}
 
         # Layout Configuration (3 Columns)
         self.grid_columnconfigure(1, weight=1) # Center expands
@@ -151,6 +158,9 @@ class SmartAttendanceApp(ctk.CTk):
         self.log_scroll = ctk.CTkScrollableFrame(self.right_panel, label_text="Recent Entries")
         self.log_scroll.pack(expand=True, fill="both", padx=10, pady=10)
 
+        self.btn_download = ctk.CTkButton(self.right_panel, text="Download Log", height=40, fg_color="green", hover_color="#006400", command=self.download_log)
+        self.btn_download.pack(pady=(0, 20), padx=20, fill="x")
+
         # Variables
         self.running = False
         self.camera_sources = [] # List of CameraSource objects
@@ -186,8 +196,24 @@ class SmartAttendanceApp(ctk.CTk):
         entry_frame = ctk.CTkFrame(self.log_scroll, height=40)
         entry_frame.pack(fill="x", pady=2)
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        self.attendance_records.append({'name': name, 'roll_no': roll_no, 'timestamp': timestamp})
+        
         lbl = ctk.CTkLabel(entry_frame, text=f"{name} ({roll_no}) - {timestamp}", anchor="w", padx=10)
         lbl.pack(side="left", fill="x", expand=True)
+
+    def download_log(self):
+        os.makedirs("reports", exist_ok=True)
+        now = datetime.datetime.now()
+        filename = f"reports/Attendance_Log_{now.strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+        
+        with open(filename, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Name", "Roll No", "Time"])
+            for record in self.attendance_records:
+                writer.writerow([record['name'], record['roll_no'], record['timestamp']])
+                
+        messagebox.showinfo("Download Complete", f"Attendance log saved to:\n{filename}")
 
     def open_student_enrollment(self):
         # 1. Release Main Camera
@@ -211,7 +237,7 @@ class SmartAttendanceApp(ctk.CTk):
 
         # 6. Initialize Enrollment Logic
         try:
-            from Main.ui.layout import AppLayout
+            from ui.layout import AppLayout
             # AppLayout expects a root-like object. We pass our inner frame.
             self.enrollment_app = AppLayout(self.inner_enrollment_frame)
             
@@ -259,11 +285,15 @@ class SmartAttendanceApp(ctk.CTk):
             # Try index 0 and 1. If 1 fails, maybe us 0 twice or just one?
             # User workflow implies 2 cameras.
             self.camera_sources = []
+            self.trackers = {}
+            
+            # Camera 1
             
             # Camera 1
             cam1 = CameraSource(0, "Cam 1")
             if cam1.start():
                 self.camera_sources.append(cam1)
+                self.trackers[0] = CentroidTracker(maxDisappeared=20, maxDistance=80)
             else:
                 print("Camera 1 failed.")
 
@@ -271,6 +301,7 @@ class SmartAttendanceApp(ctk.CTk):
             cam2 = CameraSource(1, "Cam 2")
             if cam2.start():
                 self.camera_sources.append(cam2)
+                self.trackers[1] = CentroidTracker(maxDisappeared=20, maxDistance=80)
             else:
                 print("Camera 2 failed.")
 
@@ -298,57 +329,127 @@ class SmartAttendanceApp(ctk.CTk):
         self.btn_stop.configure(state="disabled", fg_color="gray")
         self.lbl_cam_status.configure(text="System Stopped", text_color="gray")
 
-    def process_frame_logic(self, frame, debug_mode):
+    def process_frame_logic(self, frame, cam_index, debug_mode):
         """
         Run Detection -> Liveness -> Recognition
         Returns: annotated_frame, stats_dict
         """
-        stats = {"real": 0, "fake": 0, "unknown": 0, "faces": 0}
+        stats = {"real": 0, "fake": 0, "unknown": 0, "faces": 0, "log_names": []}
         
         # 1. Detection
         faces = self.detector.detect(frame)
         stats["faces"] = len(faces)
         
+        # --- TRACKING UPDATE ---
+        rects = []
+        for face in faces:
+             rects.append(face['bbox'])
+             
+        # Get Tracker for this camera
+        tracker = self.trackers.get(cam_index)
+        if tracker:
+             objects, identities = tracker.update(rects)
+        else:
+             objects, identities = {}, {}
+
+        # Map current faces to Track IDs
+        # (Simple centroid matching again or just iterate objects if we trusted tracker's rects, 
+        # but we have detections. We need to match detected face index -> track ID)
+        
+        # We will loop detections and find closest Track ID
         for face in faces:
             x1, y1, x2, y2 = face['bbox']
-            face_center_id = f"{(x1+x2)//2}_{(y1+y2)//2}"
+            cx, cy = (x1+x2)//2, (y1+y2)//2
             
+            # Find matching track ID
+            matched_id = None
+            min_dist = 9999
+            for obj_id, centroid in objects.items():
+                 d = np.linalg.norm(np.array([cx, cy]) - centroid)
+                 if d < 50: # Tolerance
+                      if d < min_dist:
+                          min_dist = d
+                          matched_id = obj_id
+            
+            face_center_id = f"{cx}_{cy}" # Fallback
+            if matched_id is not None:
+                 face_center_id = f"ID_{matched_id}"
+
+            # Retrieve Identity State
+            id_info = identities.get(matched_id, {})
+            prior_name = id_info.get('name', "Unknown")
+            prior_verified = id_info.get('verified', False)
+
             # 2. Liveness
             label, raw_score, smoothed_score, details = self.liveness_detector.predict(frame, [x1, y1, x2, y2], face_id=face_center_id)
             
             color = (255, 165, 0) # Orange Unknown
             
-            if label == "REAL":
-                color = (0, 255, 0) # Green
-                stats["real"] += 1
-                
-                # 3. Recognition (Only if Real)
-                crop_img = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
-                
-                name = "Unknown"
-                if crop_img.size > 0:
-                    name, confidence = self.face_recognizer.recognize(crop_img)
-                
-                if name != "Unknown":
-                    # Log Attendance (Return name to main thread for safe logging)
-                    stats["log_name"] = name
-                    label = name # Show name
-                else:
-                    color = (0, 200, 200) # Cyan Unknown Real
-                    # Save Unknown
-                    self.face_recognizer.save_unknown_face(frame, [x1, y1, x2, y2])
-                    
-            elif label == "FAKE":
-                color = (0, 0, 255) # Red
-                stats["fake"] += 1
-            else:
-                stats["unknown"] += 1
-                if details.get('quality_reason') != "OK":
-                   color = (128, 128, 128)
+            # LOGIC START
+             # LOGIC START
+            final_name = "Unknown"
             
+            # OPTIMIZATION: Check if we already know this person
+            # Only skip if we have a matched_id AND it is verified AND it is NOT "Unknown"
+            # This ensures we keep trying for Unknown people, but lock on for Known people.
+            is_identified = (matched_id is not None) and prior_verified and (prior_name != "Unknown")
+
+            if label == "FAKE":
+                 color = (0, 0, 255)
+                 label_text = "FAKE"
+                 stats["fake"] += 1
+            elif label == "REAL":
+                 
+                 # If already identified, skip expensive recognition
+                 if is_identified:
+                      final_name = prior_name
+                      color = (0, 255, 0)
+                      label_text = final_name
+                      stats["real"] += 1
+                      stats["log_names"].append(final_name)
+                 else:
+                      # Not yet identified (or was Unknown). Run Recognition.
+                      crop_img = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
+                      if crop_img.size > 0:
+                           name, conf = self.face_recognizer.recognize(crop_img)
+                           
+                           if name != "Unknown":
+                                # MATCH FOUND
+                                final_name = name
+                                if matched_id is not None:
+                                     tracker.identities[matched_id]['name'] = name
+                                     tracker.identities[matched_id]['verified'] = True
+                                     
+                                color = (0, 255, 0)
+                                label_text = name
+                                stats["real"] += 1
+                                stats["log_names"].append(name)
+                           else:
+                                # NO MATCH (Unknown)
+                                # Keep searching (don't set verified=True)
+                                if matched_id is not None:
+                                     tracker.identities[matched_id]['verified'] = False
+                                
+                                color = (0, 200, 200)
+                                label_text = "Unknown"
+                                stats["real"] += 1
+                                self.face_recognizer.save_unknown_face(frame, [x1, y1, x2, y2])
+                      else:
+                           label_text = "REAL"
+            else:
+                 color = (128, 128, 128)
+                 label_text = "..."
+                 stats["unknown"] += 1
+
             # Draw
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            display_text = f"{label} ({smoothed_score*100:.0f}%)"
+            display_text = f"{label_text} ({smoothed_score*100:.0f}%)"
+            if matched_id is not None:
+                 display_text += f" [{matched_id}]"
+                 
+            # Add lock indicator for debug
+            # if is_identified: display_text += " (L)"
+                 
             cv2.putText(frame, display_text, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             
             # Debug
@@ -365,18 +466,9 @@ class SmartAttendanceApp(ctk.CTk):
                     pad_left = details.get('pad_left', 0)
                     pad_top = details.get('pad_top', 0)
                     
-                    # Re-calculate generic crop mapping
-                    scale = 2.7
-                    w_box = x2 - x1
-                    h_box = y2 - y1
-                    cx_box = x1 + w_box/2
-                    cy_box = y1 + h_box/2
-                    new_w = w_box * scale
-                    new_h = h_box * scale
-                    nx1 = int(cx_box - new_w/2)
-                    ny1 = int(cy_box - new_h/2)
-                    nx1 = max(0, nx1)
-                    ny1 = max(0, ny1)
+                    # Start using MediaPipe tight crop offset mappings
+                    nx1 = details.get('mp_nx1', 0)
+                    ny1 = details.get('mp_ny1', 0)
                     
                     if dim > 0:
                         for lx, ly in landmarks:
@@ -416,22 +508,24 @@ class SmartAttendanceApp(ctk.CTk):
                         self.lbl_fake.configure(text=f"Fake: {stats['fake']}")
                         self.lbl_verified.configure(text=f"Real: {stats['real']}")
                         
-                        # Log if name found
-                        if "log_name" in stats:
-                             parts = stats["log_name"].split('_')
-                             if len(parts) >= 2:
-                                 self.add_log_entry("_".join(parts[1:]), parts[0])
-                             else:
-                                 self.add_log_entry(stats["log_name"], "N/A")
-                                 
+                        # Log if names found
+                        if "log_names" in stats:
+                             for name_to_log in stats["log_names"]:
+                                 parts = name_to_log.split('_')
+                                 if len(parts) >= 2:
+                                     self.add_log_entry("_".join(parts[1:]), parts[0])
+                                 else:
+                                     self.add_log_entry(name_to_log, "N/A")
+                                  
                     except Exception as e:
                         print(f"Frame processing error: {e}")
 
                 # Check 2: Submit new frame
                 valid, frame = cam.get_frame()
                 if valid:
-                     # Submit to executor
-                     self.cam_futures[i] = self.executor.submit(self.process_frame_logic, frame, self.debug_mode.get())
+                     # Submit to executor. We need to know which cam this is (i) inside the task
+                     # Actually process_frame_logic needs cam index now
+                     self.cam_futures[i] = self.executor.submit(self.process_frame_logic, frame, i, self.debug_mode.get())
         
         self.after(10, self.update_video_feed)
         

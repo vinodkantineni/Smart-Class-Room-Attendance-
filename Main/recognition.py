@@ -5,6 +5,8 @@ import cv2
 from facenet_pytorch import InceptionResnetV1
 from torchvision import transforms
 
+import datetime
+
 class FaceRecognizer:
     def __init__(self, dataset_path="dataset"):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -18,15 +20,15 @@ class FaceRecognizer:
         self.known_embeddings = []
         self.known_names = []
         
-        # Preprocessing (Standard InceptionResNetV1 normalization)
+    # Preprocessing
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize((160, 160)),
             transforms.ToTensor(),
-            # Whiten (standardize) is often done by facenet-pytorch internally or manually. 
-            # InceptionResnetV1 in this repo expects fixed_image_standardization if not using MTCNN.
-            # We will do manual standardization: (x - 127.5) / 128.0 roughly, or using mean/std.
-            # Official VGGFace2 pretraining expects standard float tensor.
+            # Normalization for InceptionResnetV1 (VGGFace2)
+            # It expects inputs in range [-1, 1] roughly.
+            # (x - 0.5) / 0.5  converts [0, 1] -> [-1, 1]
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
         
         self.load_known_faces()
@@ -40,17 +42,11 @@ class FaceRecognizer:
             # Convert to RGB
             rgb_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
             
-            # Transform to tensor
+            # Transform to tensor (Resize -> ToTensor -> Normalize)
             tensor_img = self.transform(rgb_img).to(self.device)
             
             # Add batch dimension
             batch_img = tensor_img.unsqueeze(0)
-            
-            # Standardize (fixed standardization for InceptionResnetV1)
-            # (x - 127.5) / 128.0 is common, but let's check what facenet-pytorch recommends.
-            # Actually, the model expects inputs in range [0, 1] if not using their fixed_image_standardization utils.
-            # But normally it requires whitening. 
-            # Let's use simple float conversion which ToTensor does [0, 1].
             
             with torch.no_grad():
                 embedding = self.resnet(batch_img)
@@ -103,7 +99,7 @@ class FaceRecognizer:
         
         print(f"Loaded {count} embeddings for {len(set(self.known_names))} unique students.")
 
-    def recognize(self, face_crop, threshold=0.7): # Threshold was 0.6 in plan, 0.7 is often safer for cosine
+    def recognize(self, face_crop, threshold=0.80): # Strict threshold
         """
         Compare face_crop against known embeddings.
         """

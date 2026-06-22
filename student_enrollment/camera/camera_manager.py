@@ -4,7 +4,8 @@ from enrollment_utils.detector import FaceDetector
 class CameraManager:
     def __init__(self, source=0):
         self.source = source
-        self.cap = cv2.VideoCapture(source)
+        # Use CAP_DSHOW on Windows for significantly faster initialization
+        self.cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
         self.detector = FaceDetector()
         
     @staticmethod
@@ -15,7 +16,8 @@ class CameraManager:
         """
         available_cameras = []
         for i in range(max_check):
-            stream = cv2.VideoCapture(i)
+            # Using CAP_DSHOW prevents 1-2 second timeouts on non-existent or busy cameras
+            stream = cv2.VideoCapture(i, cv2.CAP_DSHOW)
             if stream.isOpened():
                 available_cameras.append(i)
                 stream.release()
@@ -27,7 +29,7 @@ class CameraManager:
         if self.cap.isOpened():
             self.cap.release()
         self.source = source
-        self.cap = cv2.VideoCapture(source)
+        self.cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
 
     def get_frame(self):
         if not self.cap.isOpened():
